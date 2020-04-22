@@ -1,0 +1,323 @@
+\chapter{Converting Object Files into CompCert Instructions}\label{Disassembling}
+
+This chapter details the process of how I transformed compiled object files into the abstract instructions defined inside CompCert and how I used the operational semantics of instruction execution to build an assembly interpreter.
+
+During this chapter, I will explain much of the process with reference to an example. The C source code for this example is as given.
+
+\begin{lstlisting}[language=C, caption=example\_object.c, label=code:example]
+#include <stdlib.h>
+int bar(int n){
+    int y = 0;
+    int *x = malloc(n * sizeof(int));
+    x[0] = 1;
+    y = x[0];
+    free(x);
+    return y;
+}
+int foo(int a, int b){
+    return bar(a) + b;
+}
+\end{lstlisting}
+
+\section{CompCert Registers and Assembly Instructions}\label{compilers}
+Registers and Assembly instructions are defined in CompCert by architecture specific abstract types. I decided on the x86\_64 architecture due to ease of testing, however, since the x86\_64 architecture has variable instruction length with a complex instruction set computer design and an emphasis on backwards compatibility formatting the instructions became significantly more complicated than if I had chosen a reduced instruction set architecture. An example of which is the \lstinline{load effective address} instruction, a complex add instruction for computing address offsets and is commonly used for simple addition. Each x86\_64 register in CompCert is defined uniquely and instructions are defined as composite types of registers, various types of values and address modes.
+
+For example, the x86 integer registers are defined as:
+
+\begin{lstlisting}[language=Coq]
+Inductive ireg: Type :=
+  | RAX | RBX | RCX | RDX | RSI | RDI | RBP | RSP
+  | R8  | R9  | R10 | R11 | R12 | R13 | R14 | R15.
+\end{lstlisting}
+
+and the first couple of instructions as:
+
+\begin{lstlisting}[language=Coq]
+Inductive instruction: Type :=
+  | Pmov_rr (rd: ireg) (r1: ireg) (** move contents of r1 to rd *)
+  | Pmovl_ri (rd: ireg) (n: int)  (** move immediate n into rd *)
+  | ...
+\end{lstlisting}
+
+Note how there are multiple CompCert instructions for each x86 instruction to handle the different mnemonics of each instruction, so CompCert treats them as different instructions. CompCert does not support every instruction defined in the x86\_64 specification, such as AAA - ASCII Adjust After Addition. Thus some object files will be incompatible with this project due to the unsupported instructions.
+
+The function \lstinline{foo} in Listing \ref{code:example} is represented as this following set of CompCert instructions.
+
+\begin{lstlisting}[language=C, caption=\lstinline{foo} from example]
+int foo(int a, int b){
+    return bar(a) + b;
+}
+\end{lstlisting}
+
+\begin{lstlisting}[caption=CompCert instructions for \lstinline{foo}, label=code:instructions]
+Pallocframe     24 16 0
+Pmov_mr_a       RSP None 8 RBX
+Pmov_rr         RBX RSI
+Pcall_s         4
+Pleal           RAX RAX RBX 1 0
+Pmov_rm_a       RBX RSP None 8
+Pfreeframe      24 16 0
+Pret 
+\end{lstlisting}
+% \columnbreak
+% \end{multicols}
+
+With the assembly relating to the C code as follows:
+\begin{enumerate}
+    \item \lstinline{Pallocframe} allocates the stack frame for the function, this is found at the start of every function definition.
+    \item \lstinline{Pmov_mr_a} stores the \lstinline{%RBX} register onto the stack to comply with the ABI. The ABI specifies that the \lstinline{%RBX} register is preserved across function calls, and thus because \lstinline{foo} makes use of \lstinline{%RBX} to store \lstinline{b} across the function call it places the current value of \lstinline{%RBX} onto the stack.
+    \item \lstinline{Pmov_rr} moves the second argument \lstinline{b} of \lstinline{foo} into \lstinline{%RBX} so that it will be preserved across the function call.
+    \item \lstinline{Pcall_s} performs a function call to the assembly located at function \texttt{4}. Which in this case is the function \lstinline{bar}. The passed arguments are \lstinline{%RDI} which contains the value of \lstinline{a}. 
+    \item \lstinline{Pleal} adds the stored value \lstinline{b} in \lstinline{%RBX} to the function return value in \lstinline{%RAX}.
+    \item \lstinline{Pmov_rm_a} restores the callers \lstinline{%RBX} value into the register from memory.
+    \item \lstinline{Pfreeframe} de-allocates the stack frame which signals that the assembly has reached the end of the function.
+    \item \lstinline{Pret} returns from this function to the current return address stored in \lstinline{%RA}.
+\end{enumerate}
+
+\section{Using objdump for Relocation Tables}\label{objdump}
+objdump\cite{objdump} is a GNU binutils program for displaying various information about object files. The program is intended for assisting in work on compilation tools. 
+
+The use of objdump in this project is to print the relocation entries of a compiled object file. Object files have not been linked to an executable and as such have not had any of the. There are three types of function calls that typically appear in an object file; calls to other functions inside the object file, calls to standard external functions like malloc or free and calls to external functions in other object files. The relocation table from the example is as follows:
+
+\begin{lstlisting}
+example_object.o:     file format elf64-x86-64
+
+RELOCATION RECORDS FOR [.text]:
+OFFSET           TYPE              VALUE 
+000000000000001e R_X86_64_PC32     malloc-0x0000000000000004
+000000000000002d R_X86_64_PC32     free-0x0000000000000004
+0000000000000056 R_X86_64_PC32     bar-0x0000000000000004
+\end{lstlisting}
+
+I have written a Python script to match up the offsets to the instruction address in the object file and convert the function name (in this case foo, malloc and free) into the block numbers that the functions are located in (block construction and labelling is detailed in \ref{constructing-types}). To get the relocation information into our formatter Python runs objdump as a separate process using the subprocess module\cite{subprocess}.
+
+objdump was chosen due to it's simple formatting, minimal setup and extensive documentation, alternatives include linuxs' \lstinline{readelf} program, but since objdump is feature complete for the needs of the project it was chosen as the relocation tool.
+
+\section{Inclusion into CompCert}
+While BAP offers an extension style model CompCert is a very large project with a non-trivial compilation procedure and integrating BAP into CompCert as a library was found to be too difficult to accomplish in the given time.  The build build system for CompCert is complex and ensuring that the 
+
+The makefiles for the CompCert project are both lengthy and complicated and ensuring that the OCaml versions matched with BAP and various dependencies in opam was a lengthy process. 
+
+Instead I decided to perform the disassembling step in a separate process before the execution of the interpreter. The instructions are printed from the Python process and loaded into CompCert using an \textit{in\_channel} in OCaml. Python was chosen as a wrapper for the disassembling step for three main reasons. Firstly, Python's syntax for string handling is concise and well suited to the transformations needed in the disassembling process. Secondly, Python is a scripting language and I wouldn't need to recompile the project every time I made a change to the wrapper as I would need to do if I wrote the formatter in OCaml inside CompCert. Finally, BAP comes with a wrapper for it's disassembly step in Python which produces a succinct description of each instruction. The BAP output in Python uses instruction names specific to the instructions' mnemonics. For example in x86\_64 the \lstinline{mov} instruction can accept registers, immediates or address modes for memory accesses as operands and instead of having to write a custom detector for the different mnemonics BAP outputs unique names for these different instructions. An example of the BAP python output in the form \lstinline{<instruction address> <instruction name> <list of operands>} is as follows:
+
+\begin{lstlisting}[frame=lrbt, numbers=none]
+0x40 SUB64ri8[Reg("RSP"), Reg("RSP"), Imm(0x18)]
+0x44 LEA64r[Reg("RAX"), Reg("RSP"), Imm(0x1), Reg("Nil"), Imm(0x20), Reg("Nil")]
+0x49 MOV64mr[Reg("RSP"), Imm(0x1), Reg("Nil"), Imm(0x0), Reg("Nil"), Reg("RAX")]
+0x4d MOV64mr[Reg("RSP"), Imm(0x1), Reg("Nil"), Imm(0x8), Reg("Nil"), Reg("RBX")]
+0x52 MOV64rr[Reg("RBX"), Reg("RSI")]
+0x55 CALL64pcrel32[Imm(0x0)]
+0x5a LEA64_32r[Reg("EAX"), Reg("EAX"), Imm(0x1), Reg("EBX"), Imm(0x0), Reg("Nil")]
+0x5e MOV64rm[Reg("RBX"), Reg("RSP"), Imm(0x1), Reg("Nil"), Imm(0x8), Reg("Nil")]
+0x63 ADD64ri8[Reg("RSP"), Reg("RSP"), Imm(0x18)]
+0x67 RETQ[]
+\end{lstlisting}
+
+Comparing these instructions to the instructions in Listing \ref{code:instructions} there is a $1:1$\footnote{almost, there are a couple of exceptions, notably jump instructions.} mapping between the BAP instruction names and the CompCert instruction names.
+
+To convert the BAP names for the mnemonic specific instructions to CompCert instructions I created a map of BAP instruction names to CompCert instruction names. I then wrote a Python function to match up the operands supplied by BAP with the required operands for the CompCert instructions and filter / swap the operands until they are in the correct order for CompCert.
+ 
+I designed the output format from the wrapper as follows, with the top part of the following example being the format specification and the bottom part the foo function from before:
+
+
+
+% I decided on an output format where each line starts with either an instruction name followed by space separated operands or a $>$ symbol followed by a function name. This design was led by ease of use in OCaml. Splitting the instruction names and operands is trivial with OCaml's string library and I can then match the instruction name to the assembly instruction type. Putting the function names at the end of the functions' assembly was so that I could build an arbitrary list of instructions and them on a $>$ match I can add the function to the global programs' functions and add a (\texttt{string * ident}) tuple to a list. This list is used when an external function is called to adjust the main function of the program to execute the external function.
+
+% Here is the output format with an example.
+
+\begin{lstlisting}[numbers=none,frame=lrtb,caption=Disassembly wrapper output format, label=format]
+<instruction_name1> <register/value> <register/value> ...
+<instruction_name2> <register/value> <register/value> ...
+...
+> <function_name1>
+<instruction_name3> <register/value> <register/value> ...
+<instruction_name4> <register/value> <register/value> ...
+...
+> <function_name2>
+
+Pallocframe 24 16 0
+Pmov_mr_a RSP None 8 RBX
+Pmov_rr RBX RSI
+Pcall_s 4
+Pleal RAX RAX RBX 1 0
+Pmov_rm_a RBX RSP None 8
+Pfreeframe 24 16 0
+Pret 
+> foo
+\end{lstlisting}
+
+Note how closely the instruction names and formatting match the instructions in Listing \ref{code:instructions}. This is so that the amount of OCaml code to be written was minimal and was simple string matching. The only more complex case was memory addressing modes which has \textit{optional} parameters, thus I wrote an OCaml function to determine if the addressing mode was None (indicated by the respecitve register being "Nil").
+
+Putting the function names at the end of each functions' assembly was so that arbitrary lists of instructions and then on a $>$ match the instructions can be turned into a function and then added to the global program. I also decided to add a (\texttt{string * ident}) tuple to a separate list with the functio name and the function location (an integer). This list is used when an external function is called to adjust the main function of the program to execute the external function.
+
+\subsection{Resolving Relative Jumps}
+
+Jump instructions proved to be a harder challenge than expected. Since instructions in CompCert do not have addresses relative jumps resulting locations are specified by \lstinline{Plabel} pseudo-instructions. Thus to correctly run the assembly the \lstinline{Plabel} instructions were required to be recreated in the correct positions and the jump operands updated with the correct \lstinline{Plabel} identifier. This was done by taking calculating the resultant address of the jump:
+
+$$\text{Resulant address} = \text{Jump instruction address} + \text{offset}$$
+
+and iterating through the functions instructions until a matching resultant address $\pm 1$ is found. My script then inserted a \lstinline{Plabel} with a unique positive identifier just after the resultant instruction and updated the jumps instructions operand with the new \lstinline{Plabel}'s identifier. Note that this approach will not directly match the original disassembly as I naively create \lstinline{Plabel} instructions for each jump instruction, and thus jump instructions that are intended to jump to the same place will now point to consecutive \lstinline{Plabel} instructions.
+
+As I perform the manipulation of the instruction names I use the relocation information from objdump to fill in the information for internal calls. The Python-BAP module and objdump report different addresses for instructions so I subract \texttt{0xc0000040} from each address in the BAP instructions. BAP seems report all signed integers as unsigned so I added a conversion for instructions like relative jumps.
+
+\subsection{Resugaring Frame Allocations}
+
+Due to the way that CompCert handles memory blocks I recreate the frame allocation and frame destruction for function definitions by using the CompCert pseudo-instructions \texttt{Pallocframe} and \texttt{Pfreeframe} as seen in Listing \ref{format}. This is due to to the way CompCert creates blocks of memory in an abstract model rather than just adjusting the stack pointer (which is how assembly handles frame allocation). After examining the disassembled asm it became clear that there were three or five x86\_64 instructions at the start of the function allocating the frame and a single add instruction at the end of the function responsible for removing the function frame before the return instruction. To create the stack frame in CompCert I need to use CompCert's \texttt{Pallocframe} and \texttt{Pfreeframe} instructions which are unique to CompCert. 
+
+To find the the values needed to reconstruct the frame management instructions I reversed the \texttt{Asmexpand.ml} file which handles the expansion of CompCert pseudo-instructions and built-ins to valid x86 instructions.
+
+\begin{lstlisting}[language=OCaml, caption=Asmexpand.ml, firstnumber=496, framexleftmargin=14pt,]
+let expand_instruction instr =
+  match instr with
+  | Pallocframe (sz, ofs_ra, ofs_link) ->
+    if Archi.ptr64 then begin
+      let (sz, save_regs) = sp_adjustment_64 sz in
+      (* Allocate frame *)
+      let sz' = Z.of_uint sz in
+      emit (Psubq_ri (RSP, sz'));
+      emit (Pcfi_adjust sz');
+      if save_regs >= 0 then begin
+        (* Save the registers *)
+        emit (Pleaq (R10, linear_addr RSP (Z.of_uint save_regs)));
+        emit (Pcall_s (intern_string "__compcert_va_saveregs",
+                    {sig_args = []; sig_res = None; sig_cc = cc_default}))
+      end;
+      (* Stack chaining *)
+      let fullsz = sz + 8 in
+      let addr1 = linear_addr RSP (Z.of_uint fullsz) in
+      let addr2 = linear_addr RSP ofs_link in
+      emit (Pleaq (RAX, addr1));
+      emit (Pmovq_mr (addr2, RAX));
+      current_function_stacksize := Int64.of_int fullsz
+    end else begin
+      ...
+    end
+  | Pfreeframe (sz, ofs_ra, ofs_link) ->
+    ...
+  | ...
+\end{lstlisting}
+
+I've highlighted each \texttt{emit} call as this is where the frame allocation pseudo-instruction is converted into x86\_64 instructions. The first thing to note is that there are \textit{six} emit calls in this snippet compared to the three or five instructions I am expecting. This is because \texttt{cfi\_adjust} is a CFI profiling directive and not an actual instruction, note that the CFI directives have no effect on the generated assembly. This reduces us back to our three or five instructions. 
+
+\begin{lstlisting}[language=x86-64]
+sub    $0x8,%rsp
+lea    0x10(%rsp),%rax
+mov    %rax,(%rsp)
+...    // Function instructions
+add    $0x8,%rsp
+...   // Either ret or function call
+\end{lstlisting}
+
+Reconstructing \texttt{Pallocframe} is relatively simple as CompCert inserts the frame allocation before any other instructions in a function. I can therefore extract the full size (\texttt{fullsz}) from the \texttt{lea} instruction which is either the \nth{2} or \nth{4} instruction depending on the number of saved registers and subtract 8 to get the size \texttt{sz}. I can get the \texttt{ofs\_link} from the addressing mode of the \texttt{mov} instruction.
+
+Inferring the return address offset \texttt{ofs\_ra} is a more tricky task as the value of \texttt{ofs\_ra} is not emitted in the assembly and is used in the execution of \texttt{Pallocframe} in CompCert. Thus I have to rebuild the return address offset from the Coq semantics of the x86 stack layout.
+
+\begin{lstlisting}[language=Coq, firstnumber=34, caption=Stacklayout.v]
+Definition make_env (b: bounds) : frame_env :=
+  let w := if Archi.ptr64 then 8 else 4 in
+  ...
+  let sz := oretaddr + w in (* total size *)
+  {| fe_size := sz;
+     fe_ofs_link := olink;
+     fe_ofs_retaddr := oretaddr;
+     ... |}.
+\end{lstlisting}
+
+On line \texttt{37} the stack size is set to the return address offset $+$ the wordsize (which is 8 for x86\_64). Thus the return address offset is calculate by
+$$\texttt{ofs\_ra} = \texttt{sz} - 8.$$
+
+
+% \begin{lstlisting}[language=Coq]
+% Program Definition function_bounds := {|
+%   used_callee_save := RegSet.elements record_regs_of_function;
+%   bound_local := max_over_slots_of_funct local_slot;
+%   bound_outgoing := Z.max (max_over_instrs outgoing_space) (max_over_slots_of_funct outgoing_slot);
+%   bound_stack_data := Z.max f.(fn_stacksize) 0
+% |}.
+% \end{lstlisting}
+
+
+% This is done by finding the offsets and sizes of the stack frames from the first three instructions in the function (which are responsible for allocating the stack frame) and omitting them from the instructions that are passed to the interpreter. 
+\subsection{Constructing Correct Types in CompCert}\label{constructing-types}
+
+Finally, I need to reconstruct the abstract type that CompCert executes, this type is the \texttt{program} type. The Coq definitions for the \texttt{program} type and other relevant types are given:
+
+\begin{lstlisting}[language=Coq, caption =Asm.v program definition]
+Definition code := list instruction.
+Record function : Type := mkfunction { fn_sig: signature; fn_code: code }.
+Definition fundef := AST.fundef function.
+Definition program := AST.program fundef unit.
+\end{lstlisting}
+
+with \texttt{AST.program} and \texttt{AST.fundef} defined in the AST.v file as follows.
+
+% (** Whole programs consist of:
+% - a collection of global definitions (name and description);
+% - a set of public names (the names that are visible outside
+%   this compilation unit);
+% - the name of the ``main'' function that serves as entry point in the program.
+
+% A global definition is either a global function or a global variable.
+% The type of function descriptions and that of additional information
+% for variables vary among the various intermediate languages and are
+% taken as parameters to the [program] type.  The other parts of whole
+% programs are common to all languages. *)
+% Inductive globdef (F V: Type) : Type :=
+%   | Gfun (f: F)
+%   | Gvar (v: globvar V).
+
+\begin{lstlisting}[language=Coq, caption = AST.v program record definition and fundef definition]
+Record program (F V: Type) : Type := mkprogram {
+  prog_defs: list (ident * globdef F V);
+  prog_public: list ident;
+  prog_main: ident
+}.
+
+...
+
+(** Function definitions are the union of internal and external functions. *)
+Inductive fundef (F: Type): Type :=
+  | Internal: F -> fundef F
+  | External: external_function -> fundef F.
+\end{lstlisting}
+
+So,
+
+\begin{itemize}
+    \item The \texttt{code} type is a list of instructions
+    \item The \texttt{function} record is a tuple of function signatures and corresponding function code.
+    \item \texttt{fundef} are the union of Internal and External functions. They represent whether a function is defined inside the program or whether the function is defined in an external file.
+    \item The \texttt{program} definition is a 3-tuple containing 
+    \begin{itemize}
+        \item A list of functions and their \texttt{ident} (location) in the code. The locations are arbitrary positive integers requiring successive pieces of code be successively numbered.
+        \item A list of \texttt{ident} corresponding to each public function.
+        \item An \texttt{ident} defining the entry point of the program.
+    \end{itemize}
+\end{itemize}
+
+For a significant portion of the projects duration I made an assumption that the function signature was required either in the global environment construction or when calling internal functions. Reconstructing the functions proved to be non-trivial. I spent a long time theorizing ways to reconstruct the function signatures perfectly. I will detail the methods I could have taken to reconstruct the function definitions in the case that these methods would have been required.
+
+\begin{enumerate}
+    \item Construct the program every time a function is called with the called function as the "main" function,  and no other functions in the program, this way I can ensure that the function contains the function signature.
+    \item Since the external functions will be called from inside the interpreter I can assume that the called function will have the same function definition as the caller, therefore I can reconstruct each function signature from the signatures in the CompCert C interpreter program before the interpreter is started but after the C source file is processed.
+    \item I can require that object files contain a corresponding header file that contains the function signatures for every function in the object file. Then it is a simple matter of matching up the header file call signatures with the disassembly functions. This appraoch would again happen before the interpreter is started.
+    % \item Construct the AST once with the first function as the main function and adjust the program counter with respect to the called function.
+\end{enumerate}
+Of these three methods, I was most keen on the third as the approach does not reduce the functionality of the object file. The other two approaches would not be able to call internal functions inside the object file which would severely limit the possible programs that could be written.
+
+However, it turns out, after a deep analysis of how the global environment is set up and how call instructions and jump instructions are executed I don't need the correct function signatures at all! I can in fact just construct dummy signatures and disregard ever needing them again.
+
+I believe this is because CompCert constructs the function definitions in the assembly program to be able to prove the transformation from CompCert C into assembly is correct. Understanding the exact reasons for this are out of the scope of this project.
+
+\subsection{Internal Function Calls and Function Numbering}
+\begin{verbatim}
+    # todo
+\end{verbatim}
+
+\subsection{External Function Calls}
+
+The last part of the program construction that I needed to deal with were the external calls from inside the object file to outside the object file. I have not implemented the general case due to time limitations, but it should be possible to do this as  an extension of this work.
+
+To extend the implementation to the general case the interpreter would need to be able to take multiple object files as arguments. Separate programs would need to be constructed for each object file while resolving all of the relocations of the external calls. This should be doable by carefully setting up the locations (\texttt{ident}) of the functions and ensuring that the relocations point to the correct block in the program that the called function is in.
+
+For this project I have hard coded in a small number of external functions to the start of the program so that I could test the detecting of undefined behaviour for memory allocations. I did this by placing \texttt{malloc} and \texttt{free} in blocks 1 and 2 of the program respectively. Instead of using assembly instructions for \texttt{malloc} and \texttt{free} I call the implementation of \texttt{malloc} and \texttt{free} defined Cexec.v that is extracted to OCaml.

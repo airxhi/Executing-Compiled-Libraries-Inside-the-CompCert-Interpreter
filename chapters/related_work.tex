@@ -1,0 +1,63 @@
+\chapter{Related Work}\label{related}
+
+In this chapter I shall examine work that provides similar functionality or takes an approach that I can compare to the approach taken for this project. This includes C interpreters, dynamic analysis tools and static analysis tools.
+
+\section{Tiny C Compiler}
+The Tiny C Compiler (TCC) is a C compiler designed around small and fast execution. TCC includes two features of interest for this project; a memory and bounds checker and "C script". C script is implemented as compilation and then execution in the same process and is not strictly an interpreter, however, usage of C script is very interpreter-like and with the bounds checking is quite similar to the CompCert interpreter in usage.
+
+The bounds checking is implemented by adding additional instructions into the generated assembly that perform checks on various operations. The checks can detect errors like invalid memory accesses, double frees and overlapping regions in memory copying.
+
+TCC defines accessible memory as a series of \textit{regions}, with each region tracking the start, size and succeeding bound. Region creation checks whether any part of the created region already exists and any memory accesses get checked against the list of regions.
+
+
+
+\section{Valgrind}
+Valgrind\ is a framework for dynamic binary instrumentation, i.e. a framework designed for making dynamic binary analysis (DBA) tools.  Valgrind's most distinguishing feature is the disassemble and resynthesise method of analysing a program. Valgrind disassembles the text section of a given binary, decorates the disassembly of the binary with monitoring instructions and reassembles the binary into a separate program.
+
+Valgrind's most relevant tool to the project is Memcheck, a dynamic memory analysis tool which checks programs for memory errors as they run. Memcheck has four main ways of detecting memory errors.
+
+\begin{itemize}
+    \item Tracks which areas of memory are addressable and updates this information during program execution to detect access to un-addressable memory
+    
+    \item Tracks allocation and accesses of heap blocks (\texttt{malloc, new, new[] etc.}) and detects memory leaks and double frees.
+    
+    \item Ensures blocks passed to functions such as \texttt{strcpy} and \texttt{memcpy} do not overlap, keeping the soundness of the memory blocks. 
+    
+    \item Detecting undefined bit values in registers and memory by performing \textit{definedness checking}
+\end{itemize}
+
+Both Valgrind and the CompCert interpreter project add structure and definedness to program memory and the values allocated to the memory and registers at execution. If any of the constraints laid out by the structure in either CompCert or Valgrind are violated then the program will terminate.
+
+There is a lot of abstract similarity in how the program is represented. Valgrind uses \textit{Shadow values} to track the state of values and blocks in the program execution whereas CompCert's interpreter tracks a similar set of information about the program at runtime due to it's representation of the execution model. Shadow values tracking is a common feature in DBA tools and is a process in which the tool maintains a shadow state for every defined value in the program. 
+
+Valgrind has a clear performance advantage by running the program on a processor instead of a virtual model like CompCert. This is not a large consideration for the project due to the project being built upon an interpreter which is inherently non-performant.
+
+\section{Clang Analyzer}
+The Clang front-end for LLVM\cite{lattner2008llvm} contains a static analyzer in the default package (enabled with the  \texttt{--analyze} flag). The Clang static analyzer again makes use of a "Region Based Ternary Model" which creates an abstract region corresponding to each \texttt{lvalue}; expressions representing memory that reads and writes can be performed on or contain a pointer.
+
+Clang's analyzer has several types of regions depending on whether the region is associated with explicitly declared variables, arrays, structs and so forth. The regions are organised in a hierarchical manner, much like object oriented programming and can contain sub-regions and super-regions. The top level super regions are the stack, heap and static storage regions.
+
+A last special case of region deals with symbolic values, these are typically used in static analysis when dealing with function arguments and globals.
+
+As all of these memory models do, the regions have a concept of their size. This can be in constant values (for example and int is 4 bytes) or they can have a symbolic value for region sizes that are decided at runtime.
+
+A great example of where static analysis fails at dynamic analysis succeeds is the following:
+\begin{verbatim}
+    int *x = malloc(sizeof(int)*32);
+    x[40] = 1;
+\end{verbatim}
+
+Clang will analyze this snippet and not catch any errors, my implementation and TCC however, catch this error as the region is allocated at runtime and the violation of the C standard (i.e. undefined behaviour) is caught.
+
+% \section{Ramblr}
+% Ramblr is a static binary rewriting tool. Many security-critical compiled programs are still in use with un-maintained codebases. Ramblr provides a way to patch and reassemble binaries statically, fixing security bugs in the software. Ramblr takes a novel approach by making changes to the binary in-place, in contrast to many other tools which either insert hooks to add code or perform the patching dynamically with large overhead.
+
+% Ramblr makes large strides in the symbolization; determining whether a value (e.g. an offset or memory address) is used as a \txtit{symbol reference} and can be assigned the symbol reference alongside it's value. 
+
+% While our project is mainly concerned with un-optimized binaries with verbose relocation information, extending the project to make useful support of optimized binaries would require a more advanced level of symbolization.
+
+% Ramblr uses a separate tool named angr for disassembly and control flow graph (CFG) reconstruction. After CFG construction Ramblr performs a step called \textit{Content Classification} whereby it analyses the CFG to identify data locations and data types. The CFG generation could be useful 
+
+\section{Infer}
+
+\section{Cerebrus}

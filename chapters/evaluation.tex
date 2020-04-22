@@ -1,0 +1,193 @@
+\chapter{Evaluation}\label{eval}
+
+The evaluation of the extended interpreter was carried out in two stages. The first stage evaluated the interpreter against custom written object files, designed to be small and test specific, known parts of the interpreter. The second stage was focused on real world object files. Due to time constraints the implementation is not able to handle some more complex test cases, in which case we will describe modifications and extensions to the implementation that would allow the examples to work with the project.
+
+\section{Evaluation of Custom Object Files}
+
+All of the object files were compiled with CompCert so that there were no unsupported instructions in the generated object file. The object files were written in an incremental fashion, with the easiest to implement features tested first and the more complex parts of the project evaluated later.
+
+I will provide a series of examples showing the intended functionality of the project. The amount of detail in each example decreases to keep the explanations short and to the point, the full file contents and debug information can be found in the Appendix.
+
+\subsection{Integer Arguments}
+
+Integer arguments are the most basic feature that verifies a working minimal implementation. Here is an example source file which calls a trivial add function in an object file.
+\begin{multicols}{2}
+\begin{minipage}{0.5\textwidth}
+\begin{lstlisting}[language=C, caption =call\_add.c]
+int add(int a, int b);
+int main(){
+    int x = add(2,4);
+    printf("x: %d\n",x);
+    return 0;     
+}
+\end{lstlisting}
+\end{minipage}
+\begin{lstlisting}[language=C, caption=add.c]
+int add(int a, int b){
+    return a+b;
+}
+\end{lstlisting}
+\end{multicols}
+
+After compiling \texttt{add.c} into an object file with \lstinline{ccomp add.c -c -o add.o} we can disassemble the object files' text section to view the instructions relating to \lstinline{add(int a, int b)}.
+
+
+\begin{multicols}{2}
+\begin{minipage}{0.5\textwidth}
+\begin{lstlisting}[language=x86-64, caption=add.o disassembly]
+sub    $0x8,%rsp
+lea    0x10(%rsp),%rax
+mov    %rax,(%rsp)
+lea    (%edi,%esi,1),%eax
+add    $0x8,%rsp
+retq   
+\end{lstlisting}
+\end{minipage}
+\begin{lstlisting}[caption=Output of disassembly wrapper]
+Pallocframe 16 0 0
+Pleal RAX RDI RSI 1 0
+Pfreeframe 16 0 0
+Pret
+> add
+\end{lstlisting}
+\end{multicols}
+
+After resugaring there are 4 instructions in the output, the 2 instructions for frame allocation and de-allocation, the load effective address instruction which is a complex x86 instruction with that is commonly used for simple addition and the return instruction. Even though there are no local variables declared on the stack the frame allocations still take place.
+
+Running these files in our project produces the following debug output showing the instruction execution.
+
+\begin{lstlisting}[frame=lrtb, numbers=none, caption=\texttt{\$ ccomp -interp add.c -link add.o}]
+Pallocframe
+Pleal
+Pfreeframe
+Pret
+x: 6
+Time 19: observable event: extcall printf(& __stringlit_1, 6) -> 1
+Time 24: program terminated (exit code = 0)
+\end{lstlisting}
+
+The number 6 is printed to \lstinline{stdout} and thus this is a demonstration of a working implementation.
+
+\subsection{Mixed and Arbitrary Length Arguments}
+This example demonstrates how the external functions can accept both integer and floating point arguments and correctly places them in the respective registers according to the ABI.
+
+\begin{lstlisting}[language=C, caption=call\_mixed.c]
+#include <stdio.h>
+float multiply(int a, float b, int c, int d, float e);
+int main(){
+    printf("%f\n", multiply(2, 3.f ,1 ,2 ,5.f));
+    return 0;
+}
+\end{lstlisting}
+
+\begin{lstlisting}[language=C, caption=mixed.c]
+float multiply(int a, float b, int c, int d, float e){
+    return a * b * c * d * e;
+}
+\end{lstlisting}
+
+The ABI convention fills up the integer registers and floating point registers first before placing arguments on the stack. I have not added support for arguments on the stack due to time limitations. This is due to the uncertainty in how CompCert lays out the memory and initializes the stack pointer when setting up the assembler global environment. This would require time spent researching the CompCert implementation of stack arguments.
+
+\begin{lstlisting}[frame=lrtb, numbers=none, caption =\texttt{\$ ccomp -interp call\_mixed.c -link mixed.o}]
+60.000000
+Time 11: observable event: extcall printf(& __stringlit_1, 60.) -> 10
+Time 16: program terminated (exit code = 0)
+\end{lstlisting}
+
+\subsection{Calling Internal Functions}
+
+Calling internal functions is a necessity for a large amount of functionality in C. This example demonstrates this projects' ability to do so.
+
+\begin{multicols}{2}
+\begin{lstlisting}[language=C]
+#include <stdio.h>
+int bar(int a);
+int main(){
+    printf("%d\n", bar(4));
+    return 0;
+}
+\end{lstlisting}
+
+\begin{lstlisting}[language=C]
+int foo(int a){
+    return a+1;
+}
+
+int bar(int a){
+    return a + foo(a);
+}
+\end{lstlisting}
+\end{multicols}
+
+\begin{lstlisting}[frame=lrbt, numbers=none, caption=\texttt{\$ ccomp -interp call\_malloc\_free.c -link malloc\_free.o}]
+9
+Time 11: observable event: extcall printf(& __stringlit_1, 9) -> 2
+Time 16: program terminated (exit code = 0)
+\end{lstlisting}
+
+And as is show by the terminal output $4+(4+1)=9$ is printed, with more detailed output\ref{Appendix} showing the correct setup of the internal calls).
+
+\subsection{Calling Malloc and Free}
+
+In this example I will demonstrate the implementation supporting calls from inside the object file to external library functions which have affects on the memory like \lstinline{malloc} and \lstinline{free}.
+
+\begin{multicols}{2}
+\begin{lstlisting}[language=C, caption=call\_malloc.c]
+#include <stdio.h>
+
+int *getPointer();
+int main(){
+    int x* = getPointer();
+    printf("%d\n", x[0]);
+    return 0;
+}
+\end{lstlisting}
+
+\begin{lstlisting}[language=C, caption=allocate\_memory.c]
+#include <stdlib.h>
+int *getPointer(){
+    int *x = (int *) malloc(sizeof(int));
+    int *y = (int *) malloc(sizeof(int));
+    free(y);
+    x[0] = 1;
+    return x;
+}
+\end{lstlisting}
+\end{multicols}
+
+Due to time constraints \lstinline{malloc} and \lstinline{free} are the only available external standard library functions available as these functions need to be implemented internally in OCaml.
+
+\subsection{Global Variables}
+This example shows how the implementation does not support global variables inside the object file. 
+
+\begin{multicols}{2}
+
+\begin{lstlisting}[language=C, caption=global.c]
+int x;
+int foo(){
+    x = 4;
+    return x;
+}
+\end{lstlisting}
+
+\begin{lstlisting}[frame=lbrt, numbers=none, caption=\texttt{\$ ccomp -interp call\_global.c -link global.o}]
+Execution of "Pmovl_mr" instruction invalid!
+Stuck state: calling foo()
+ERROR: Undefined behavior
+\end{lstlisting}
+
+\end{multicols}
+
+For clarity, the invalid instruction printed in AT\&T syntax is as follows.
+
+\lstinline{movl    %eax, 0(%rip)}
+
+This is a 32 bit move instruction from the memory location where x \textit{should} be to the \lstinline{rax} register. The \lstinline{0(%rip)} is syntax for an offset from the current instruction location to the location of x. To support global variables the implementation would need to need to allocate memory for the global variables before execution and relocation all of the references to the global variable.
+
+\subsection{Incorrect Return Types}
+
+\subsection{Undefined Behaviour in Object File}
+
+\section{Evaluation of Implementation}
+
+\section{Comparison of Features Against Previous Work}

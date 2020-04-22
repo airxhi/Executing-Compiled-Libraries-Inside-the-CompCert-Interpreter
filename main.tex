@@ -1,0 +1,202 @@
+%%%%%%%%%%%%%%%%%%%%%%%%
+% Sample use of the infthesis class to prepare an MSc thesis.
+% This can be used as a template to produce your own thesis.
+% Date: June 2019
+%
+%
+% The first line specifies style options for taught MSc.
+% You should add a final option specifying your degree.
+% *Do not* change or add any other options.
+%
+% So, pick one of the following:
+% \documentclass[msc,deptreport,adi]{infthesis}     % Adv Design Inf
+% \documentclass[msc,deptreport,ai]{infthesis}      % AI
+% \documentclass[msc,deptreport,cogsci]{infthesis}  % Cognitive Sci
+% \documentclass[msc,deptreport,cs]{infthesis}      % Computer Sci
+% \documentclass[msc,deptreport,cyber]{infthesis}   % Cyber Sec
+% \documentclass[msc,deptreport,datasci]{infthesis} % Data Sci
+% \documentclass[msc,deptreport,di]{infthesis}      % Design Inf
+% \documentclass[msc,deptreport,inf]{infthesis}     % Informatics
+%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+\documentclass[bsc,deptreport,cs]{infthesis} % Do not change except to add your degree (see above).
+
+\usepackage[parfill]{parskip}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage[super]{nth}
+\hypersetup{
+    colorlinks,
+    citecolor=black,
+    filecolor=black,
+    linkcolor=black,
+    urlcolor=black
+}
+
+% \usepackage{minted}
+% \usemintedstyle{vs}
+
+\usepackage{lstautogobble}  % Fix relative indenting
+\usepackage{color}          % Code coloring
+\usepackage{zi4}            % Nice font
+\usepackage{multicol}
+
+\definecolor{bluekeywords}{rgb}{0.13, 0.13, 1}
+\definecolor{graycomments}{rgb}{0.6, 0.6, 0.6}
+\definecolor{redstrings}{rgb}{0.9, 0, 0}
+\definecolor{graynumbers}{rgb}{0.5, 0.5, 0.5}
+\definecolor{purpleidents}{rgb}{0.5,0,0.6}
+\definecolor{darkgreenkey}{rgb}{0.0, 0.3, 0.1}
+
+\usepackage{listings}
+
+
+\lstdefinelanguage{Coq}
+{
+    keywords=[1]{
+       Inductive,
+       Definition,
+       Record, Program,
+    },
+    keywordstyle=[1]\color{darkgreenkey},
+    keywords=[2]{forall, Some, Next, State, Type, list, Set, let, with},
+    keywordstyle=[2]\color{purpleidents},
+    morecomment=[n]{(*}{*)},
+    commentstyle=\color{graycomments},
+}
+
+\lstdefinelanguage{OCaml}
+{
+    keywords=[1]{
+        let, match, with, if, then, begin, in, end,
+    },
+    keywords=[2]{
+        emit
+    },
+    keywordstyle=[2]\color{purpleidents},
+    commentstyle=\color{graycomments},
+    stringstyle=\color{redstrings},
+    morecomment=[n]{(*}{*)},
+}
+
+\lstdefinelanguage{x86-64}
+{
+    keywords={
+        sub, lea, mov, add, retq
+    },
+    morecomment=[l]{//},
+    commentstyle=\color{graycomments}
+}
+
+\lstset{
+    columns=fullflexible,
+    keepspaces=true,
+    showspaces=false,
+    showtabs=false,
+    breaklines=true,
+    showstringspaces=false,
+    breakatwhitespace=true,
+    escapeinside={(*@}{@*)},
+    commentstyle=\color{graycomments},
+    keywordstyle=\color{bluekeywords},
+    % identifierstyle=\color{purpleidents},
+    stringstyle=\color{redstrings},
+    numberstyle=\color{graynumbers},
+    basicstyle=\ttfamily\footnotesize,
+    frame=l,
+    numbers=left,
+    framesep=12pt,
+    xleftmargin=12pt,
+    framexleftmargin=10pt,
+    tabsize=4,
+    captionpos=b,
+    belowskip=0pt,
+    aboveskip=0pt,
+    belowcaptionskip=0pt,
+}
+\usepackage{graphicx}
+\usepackage[absolute,overlay]{textpos}
+\usepackage{eushield}
+\shieldtype{1}
+
+\begin{document}
+\begin{preliminary}
+% \begin{textblock*}{<hsize>}(<hpos>,<vpos>)
+\begin{textblock*}{100pt}(16cm,2cm)
+\includegraphics[width=80pt]{\eushield}
+\end{textblock*}
+
+\title{Extending the CompCert Interpreter to Execute Compiled Libraries Using Operational Semantics for Assembly}
+
+\author{Alastair White}
+
+\abstract{
+Improving detection of undefined behaviour in programs is an ongoing effort in both the cybersecurity and programming languages community. This project contributes to the existing effort by extending an interpreter that uses formal semantics of the C language to define the execution of a program. The extension improves the interpreter by adding the ability to call external functions in compiled object files.
+
+To implement this contribution, the project takes a series of steps to run the external functions. Compiled object files are first disassembled into their corresponding \lstinline{x86_64} representation before being formatted and passed into the interpreter. The instructions are then executed when called upon by an assembly interpreter on the same memory model as the interpreter. The assembly interpreter is derived from definitions of the operational semantics of \lstinline{x86_64} program execution and calls on instruction execution defined by formal semantics. 
+
+Previous work in this area\cite{linking-rigorous} took the approach of running executable shared object files in a separate process and integrating the returned values and in-memory objects. The previous work has the drawback that any undefined behaviour present in the external executable will be undetected and introduce a security vulnerability. 
+
+The project was a success and the interpreter is able to call a wide variety of external functions. Since the resultant system is based on the operational semantics of instruction execution any instructions that violate defined behaviour in C will be detected. As a side effect the assembly interpreter acts as a dynamic binary analysis tool for free ensuring program correctness.
+
+
+% CompCert is a formally verified optimizing compiler that supports a subset of C11. The CompCert compiler includes an interpreter for C that executes C code on the same formal semantics that the compiler is written on and can detect undefined behaviour in programs. The current interpreter is limited by it's inability to call external functions. The aim of this project is to extend the interpreter such that it can dynamically load and call external functions in compiled object files so that the interpreter can execute code that relies on external libraries.
+}
+
+\maketitle
+
+\section*{Acknowledgements}
+I would like to thank my supervisor, Brian Campbell for all of his encouragement, as well as amazing insight, help and feedback without which this project would not have been possible. SIGINT Edinburgh for introducing me to the fun of low-level Computer Science and cyber-security, as well as assisting with understanding the complex inner workings of C. Finally my parents for reading through the report and supporting me.
+
+
+\tableofcontents
+\end{preliminary}
+
+\include{chapters/introduction}
+\include{chapters/background}
+\include{chapters/dis}
+\include{chapters/CompCert}
+\include{chapters/evaluation}
+\include{chapters/related_work}
+\include{chapters/conclusion}
+
+% \include{chapters/future}
+
+% \chapter{Current Progress}\label{current-progress}
+% \begin{itemize}
+%     \item Setup of a global state, set of registers, memory state and all of the other relevant constructs for execution of arbitrary CompCert instructions on the given state.
+%     \item Analysis of current disassembler technologies and suitability for integration into the project.
+%     \item Mapping from disassembler generated output to CompCert instructions.
+% \end{itemize}
+
+
+% \chapter{Achievable goals and timeline}\label{timeline-and-content-to-still-complete}
+
+% \begin{itemize}
+%     \item Feb 01 - Feb 07 : Finish mapping of instructions and implement mapping
+%     \item Feb 08 - Feb 16 : Investigate function call symbol resolution
+%     \item Feb 17 - Feb 22 : Target common libraries (such as libc) and implement anything needed to support these libraries.
+%     \item Feb 23 - March 01 : Analysis of project against custom and standard libraries and add functionality for support of "harder" features if time permits.
+%     \item March 01 - April 02 : Write up report and perform analysis of symbolic resolution techniques and how they relate to the project.
+% \end{itemize}
+
+\bibliographystyle{plain}
+\bibliography{mybibfile}
+
+\include{appendix}
+
+
+%% You can include appendices like this:
+% \appendix
+% 
+% \chapter{First appendix}
+% 
+% \section{First section}
+% 
+% Markers do not have to consider appendices. Make sure that your contributions
+% are made clear in the main body of the dissertation (within the page limit).
+
+\end{document}

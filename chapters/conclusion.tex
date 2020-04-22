@@ -1,0 +1,18 @@
+\chapter{Conclusion}\label{conclusion}
+
+In this project, we explored linking compiled object files to a C file running in a compiler built on formal semantics of the C language for the purpose of useful undefined behaviour detection for mission critical C code.
+
+The linker was implemented, being able to disassemble a subset of object files and dynamically link them to an interpreted source file. The interpreter supports functions that take and return arithmetic types.
+
+\section{Motivation for Future Work}
+
+\begin{itemize}
+    \item \textbf{Support for all C standard library functions}\\
+    Many object files use functions from the C standard library. Due to the extensive use of the standard library and the system specific interaction many of the functions have with memory the standard library should be written in OCaml and conform to the specifications of the C standard~\cite{iso_standard}.
+    
+    \item \textbf{Pre-allocation of in-memory objects}\\
+    A natural extension of the project is support for objects that are allocated globally or in data sections of the object file. This would require locating and parsing these objects and allocating them in the memory model before the interpreters' execution.
+    
+    \item \textbf{Investigation into decompiler feasibility}\\
+    Since CompCert defines operational semantics between CompCert C and the generated assembly the reverse may also be possible. I.e. for a given programs' assembly $A$, can we find some $A' \in$ CompCert C such that $A$ is equivalent to $A'$ in execution. 
+\end{itemize}

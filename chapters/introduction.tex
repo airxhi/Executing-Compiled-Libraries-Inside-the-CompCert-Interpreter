@@ -1,0 +1,42 @@
+\chapter{Introduction}\label{introduction}
+
+\section{Motivation}\label{motivation}
+
+% Remote code execution is the holy grail of exploiting any system, with memory safety vulnerabilities being a large attack vector for any malicious actor.
+
+The C programming language is notorious for it's many issues relating to memory safety\cite{common-bugs}. There have been attempts to address this with static analysis tools\cite{kremenek2008finding, calcagno2011infer, chess2004static}; which check code at compile time for memory violations, and dynamic analysis tools\cite{ernst2007daikon, serebryany2012addresssanitizer, seward2005using} which monitor a program for undefined behaviour during runtime.
+
+CompCert\cite{leroy2012compcert} is a C compiler developed by INRIA which uses operational semantics of the C language, written in Coq\cite{coq_website} and apply verified optimizations to various representations of the program to ensure that the optimizations preserve the program specification. This ensures that there are no compiler bugs in the generated binary.
+
+The CompCert compiler comes with an interpreter that uses the C language description\cite{iso_standard} to interpret the parsed C code (before optimizations). As the interpreter is built upon the Coq description of C, undefined behaviour can be detected at run-time and gracefully stop the program.
+
+The interpreter is limited in its capacity as it can only work
+with a single source file and can not use compiled external libraries. This limits both program size and functionality. To be a relevant tool in detecting undefined behaviour the interpreter requires this missing functionality.
+
+In previous work\cite{linking-rigorous}, a project was undertaken which extended the interpreter to call external libraries by running the library in a separate process and handling the passing of function arguments and accepting resultant values into the interpreter. My work takes a different approach by executing the object file (library) with the formal semantics described in CompCert. This is done by bridging the CompCert interpreter to an assembly interpreter.
+
+\section{Goals and Contributions}\label{project-goal}
+
+The goal of this project is to extend the CompCert C interpreter to be able to run compiled code from external libraries, this process can also be called \textit{linking}. To achieve this goal a set of aims were set at the start of the project.
+
+\begin{enumerate}
+\item
+  Enable execution of CompCert instructions via the Coq definitions. CompCert instructions are the internal abstract form of assembly instructions in CompCert
+\item
+  Disassemble compiled libraries into instructions matching the CompCert
+  specification.
+\item
+  Assemble the instructions into functions and construct types specified in CompCert to ease development.
+\item
+  Extend the CompCert interpreter to execute the disassembled libraries. 
+\item
+  Evaluate the implementation against self-written libraries that test specific parts of the implementation.
+\end{enumerate}
+
+
+All of the aims have been met, there are parts of the self-written evaluation that are avenues for future work alongside evaluating the work against common functions in Unix libraries like libc.
+
+\section{Report Structure}\label{report-structure}
+The subsequent chapters contain more details about the technical background, related work, the approach to the project, implementation details, evaluation and any conclusions that can be drawn from the project.
+
+Relevant work including static analysis, CompCert's memory representation, modern disassembling is discussed in chapter 2. Chapter 3 details the approach the project took to disassembling and formatting instructions to use for the project. Chapter 4 dives further into the internals of CompCert, how I used the internals to produce my implementation and and design decisions I took during ther process. Chapter 5 goes through the evaluation of the implementation, explaining how various example programs are executed and where care has had to be taken for edge cases. Chapter 6 examines related work in the subject area and chapter 7 finishes the report with a brief conclusion.
